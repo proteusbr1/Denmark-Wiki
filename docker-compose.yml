@@ -1,0 +1,44 @@
+services:
+  wiki:
+    image: ghcr.io/requarks/wiki:latest
+    pull_policy: always
+    container_name: demark-wiki
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-wikijs}
+      DB_PASS: ${DB_PASS:-wikijsrocks}
+      DB_NAME: ${DB_NAME:-wiki}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${WIKI_PORT:-3000}:3000"
+    networks:
+      - wiki-net
+
+  db:
+    image: postgres:15-alpine
+    container_name: demark-wiki-db
+    environment:
+      POSTGRES_DB: ${DB_NAME:-wiki}
+      POSTGRES_USER: ${DB_USER:-wikijs}
+      POSTGRES_PASSWORD: ${DB_PASS:-wikijsrocks}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-wikijs} -d ${DB_NAME:-wiki}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wiki-net
+
+volumes:
+  db-data:
+
+networks:
+  wiki-net:
