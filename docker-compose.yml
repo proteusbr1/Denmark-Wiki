@@ -16,8 +16,20 @@ services:
     restart: unless-stopped
     ports:
       - "127.0.0.1:${WIKI_PORT:-3000}:3000"
+    # /healthz é endpoint built-in do Wiki.js que retorna 200 quando o processo
+    # Node está servindo. Liveness (não valida DB — se Postgres cair em operação,
+    # o próprio Wiki.js crasha, o que o HEALTHCHECK pega).
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- --timeout=5 http://127.0.0.1:3000/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     networks:
-      - wiki-net
+      wiki-net:
+      monitoring:
+        aliases:
+          - demark-wiki
 
   db:
     image: postgres:15-alpine
@@ -42,3 +54,5 @@ volumes:
 
 networks:
   wiki-net:
+  monitoring:
+    external: true

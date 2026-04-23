@@ -1,4 +1,4 @@
-.PHONY: up down restart logs status ps build pull backup clean help
+.PHONY: up down restart logs status ps build pull update prod-update backup clean help
 
 # Default target
 help: ## Show this help
@@ -30,6 +30,34 @@ pull: ## Pull latest images
 
 update: pull ## Update images and recreate containers
 	docker compose up -d --remove-orphans
+
+prod-update: ## Full prod update: git pull → pull images → up → wait healthy → prune
+	@set -e; \
+	echo "==> [1/5] git pull --ff-only"; \
+	git pull --ff-only; \
+	echo "==> [2/5] Pulling images"; \
+	docker compose pull; \
+	echo "==> [3/5] Up -d --remove-orphans"; \
+	docker compose up -d --remove-orphans; \
+	echo "==> [4/5] Waiting for 'demark-wiki' healthy (timeout 180s)"; \
+	deadline=$$(( $$(date +%s) + 180 )); \
+	while true; do \
+	  health=$$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' demark-wiki 2>/dev/null || echo missing); \
+	  state=$$(docker inspect --format '{{.State.Status}}' demark-wiki 2>/dev/null || echo missing); \
+	  if [ "$$health" = "healthy" ]; then \
+	    echo "    demark-wiki: healthy"; break; \
+	  fi; \
+	  if [ $$(date +%s) -ge $$deadline ]; then \
+	    echo "    TIMEOUT (state=$$state health=$$health)"; \
+	    echo "    --- last 50 wiki log lines ---"; \
+	    docker compose logs --tail=50 wiki; \
+	    exit 1; \
+	  fi; \
+	  sleep 3; \
+	done; \
+	echo "==> [5/5] Pruning dangling images"; \
+	docker image prune -f; \
+	echo "prod-update complete"
 
 backup: ## Backup database to backups/ folder
 	@mkdir -p backups
