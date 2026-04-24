@@ -39,21 +39,23 @@ prod-update: ## Full prod update: git pull → pull images → up → wait healt
 	docker compose pull; \
 	echo "==> [3/5] Up -d --remove-orphans"; \
 	docker compose up -d --remove-orphans; \
-	echo "==> [4/5] Waiting for 'demark-wiki' healthy (timeout 180s)"; \
+	echo "==> [4/5] Waiting for services healthy (timeout 180s)"; \
 	deadline=$$(( $$(date +%s) + 180 )); \
-	while true; do \
-	  health=$$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' demark-wiki 2>/dev/null || echo missing); \
-	  state=$$(docker inspect --format '{{.State.Status}}' demark-wiki 2>/dev/null || echo missing); \
-	  if [ "$$health" = "healthy" ]; then \
-	    echo "    demark-wiki: healthy"; break; \
-	  fi; \
-	  if [ $$(date +%s) -ge $$deadline ]; then \
-	    echo "    TIMEOUT (state=$$state health=$$health)"; \
-	    echo "    --- last 50 wiki log lines ---"; \
-	    docker compose logs --tail=50 wiki; \
-	    exit 1; \
-	  fi; \
-	  sleep 3; \
+	for pair in "db:demark-wiki-db" "wiki:demark-wiki"; do \
+	  svc=$${pair%%:*}; cname=$${pair##*:}; \
+	  echo "    checking $$svc ($$cname)..."; \
+	  while true; do \
+	    health=$$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' $$cname 2>/dev/null || echo missing); \
+	    state=$$(docker inspect --format '{{.State.Status}}' $$cname 2>/dev/null || echo missing); \
+	    if [ "$$health" = "healthy" ]; then echo "      $$svc: healthy"; break; fi; \
+	    if [ "$$health" = "no-healthcheck" ] && [ "$$state" = "running" ]; then echo "      $$svc: running (no HEALTHCHECK)"; break; fi; \
+	    if [ $$(date +%s) -ge $$deadline ]; then \
+	      echo "      $$svc: TIMEOUT (state=$$state health=$$health)"; \
+	      docker compose logs --tail=30 $$svc; \
+	      exit 1; \
+	    fi; \
+	    sleep 3; \
+	  done; \
 	done; \
 	echo "==> [5/5] Pruning dangling images"; \
 	docker image prune -f; \
