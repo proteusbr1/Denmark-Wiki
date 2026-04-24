@@ -26,10 +26,7 @@ services:
       retries: 3
       start_period: 60s
     networks:
-      wiki-net:
-      monitoring:
-        aliases:
-          - demark-wiki
+      - wiki-net
 
   db:
     image: postgres:15-alpine
@@ -49,6 +46,32 @@ services:
       start_period: 15s
     networks:
       - wiki-net
+
+  # Sidecar de health — aggrega Wiki.js (liveness via /healthz) + Postgres (TCP)
+  # e expõe /health/ready no padrão "status":"ok" pro Uptime Kuma.
+  health:
+    image: python:3-alpine
+    container_name: demark-wiki-health
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      wiki:
+        condition: service_started
+    volumes:
+      - ./healthcheck.py:/app/healthcheck.py:ro
+    command: ["python", "-u", "/app/healthcheck.py"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3).status==200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      wiki-net:
+      monitoring:
+        aliases:
+          - demark-wiki-health
 
 volumes:
   db-data:
